@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Init service to download dataset and generate manifests
+  init:
+    image: python:3.11-slim
+    container_name: iiif-init
+    volumes:
+      - ./scripts:/scripts
+      - ./data:/data
+      - ./out:/out
+      - ./.env:/app/.env:ro
+      - ./requirements.txt:/requirements.txt:ro
+    working_dir: /scripts
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      sh -c "
+        echo '=== Installing Python dependencies ===' &&
+        pip install --no-cache-dir -q -r /requirements.txt &&
+        echo '=== Downloading dataset ===' &&
+        python 00_download_dataset.py &&
+        echo '=== Generating IIIF manifests ===' &&
+        python 10_generate_manifests.py &&
+        echo '=== Initialization complete ===' &&
+        echo '' &&
+        python 99_display_examples.py &&
+        echo '' &&
+        echo '======================================================================' &&
+        echo '🌐 Open the viewer in your browser:' &&
+        echo '   http://localhost:8080' &&
+        echo '======================================================================'
+      "
+    profiles:
+      - init
+
+  # Cantaloupe IIIF Image Server
+  cantaloupe:
+    image: uclalibrary/cantaloupe:5.0.7-0
+    container_name: cantaloupe-iiif
+    ports:
+      - "8182:8182"
+    volumes:
+      - ./data/images:/imageroot:ro
+      - ./cantaloupe.properties:/etc/cantaloupe.properties:ro
+    environment:
+      - CANTALOUPE_CONFIG=/etc/cantaloupe.properties
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    profiles:
+      - init
+      - default
+
+  # Cantaloupe standalone (without init)
+  cantaloupe-standalone:
+    image: uclalibrary/cantaloupe:5.0.7-0
+    container_name: cantaloupe-iiif
+    ports:
+      - "8182:8182"
+    volumes:
+      - ./data/images:/imageroot:ro
+      - ./cantaloupe.properties:/etc/cantaloupe.properties:ro
+    environment:
+      - CANTALOUPE_CONFIG=/etc/cantaloupe.properties
+    restart: unless-stopped
+    profiles:
+      - standalone
+
+  # Lightweight HTTP server for IIIF manifests
+  manifest-server:
+    image: nginx:alpine
+    container_name: manifest-server
+    ports:
+      - "8080:80"
+    volumes:
+      - ./out/collections:/usr/share/nginx/html/collections:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    profiles:
+      - init
+      - default

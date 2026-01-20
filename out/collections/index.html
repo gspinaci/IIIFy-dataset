@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IIIF Manifest Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+        }
+        
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .subtitle {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 0.25rem;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .controls {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-weight: 500;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .viewer-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        #mirador-viewer {
+            width: 100%;
+            height: calc(100vh - 300px);
+            min-height: 600px;
+        }
+        
+        .info {
+            background: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+        }
+        
+        .info p {
+            margin: 0.25rem 0;
+            color: #2c3e50;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background: #fee;
+            border-left: 4px solid #e74c3c;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            color: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🖼️ IIIF Manifest Viewer</h1>
+        <div class="subtitle">Browse and visualize IIIF manifests with Mirador</div>
+    </header>
+    
+    <div class="container">
+        <div class="controls">
+            <div class="info">
+                <p><strong>Available Manifests:</strong> Select a manifest below to view it in Mirador viewer</p>
+                <p><strong>Manifest Server:</strong> <span id="base-url"></span></p>
+            </div>
+            
+            <div class="form-group">
+                <label for="manifest-select">Select Manifest:</label>
+                <select id="manifest-select">
+                    <option value="">Loading manifests...</option>
+                </select>
+                <small style="color: #7f8c8d; display: block; margin-top: 0.25rem;">Or try the sample below:</small>
+                <button style="margin-top: 0.5rem; background: #27ae60;" onclick="loadSampleManifest()">Load Sample Manifest</button>
+            </div>
+            
+            <div class="form-group">
+                <label for="custom-url">Or enter custom manifest URL:</label>
+                <input type="text" id="custom-url" placeholder="https://example.com/manifest.json">
+            </div>
+            
+            <button id="load-btn" onclick="loadManifest()">Load Manifest</button>
+        </div>
+        
+        <div class="viewer-container">
+            <div id="mirador-viewer">
+                <div class="loading">
+                    <h2>👆 Select a manifest above to start viewing</h2>
+                    <p>The Mirador viewer will appear here</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/mirador@latest/dist/mirador.min.js"></script>
+    <script>
+        let miradorInstance = null;
+        const baseUrl = window.location.origin;
+        
+        // Display base URL
+        document.getElementById('base-url').textContent = baseUrl;
+        
+        // Fetch available manifests
+        async function loadManifestList() {
+            try {
+                console.log('Fetching manifest list from /collections/');
+                const response = await fetch('/collections/', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Manifest list received:', data);
+                
+                const select = document.getElementById('manifest-select');
+                select.innerHTML = '<option value="">-- Select a manifest --</option>';
+                
+                // Filter for JSON files (exclude index.html)
+                let manifests = Array.isArray(data) ? data : [];
+                manifests = manifests.filter(item =>
+                    item.name && item.name.endsWith('.json') &&
+                    item.name !== 'index.html'
+                ).sort((a, b) => a.name.localeCompare(b.name));
+                
+                console.log('Filtered manifests:', manifests);
+                
+                if (manifests.length === 0) {
+                    select.innerHTML = '<option value="">No manifests found</option>';
+                    console.warn('Raw data received:', data);
+                } else {
+                    manifests.forEach(manifest => {
+                        const option = document.createElement('option');
+                        const manifestUrl = `/collections/${manifest.name}`;
+                        option.value = manifestUrl;
+                        option.textContent = manifest.name.replace('.json', '');
+                        select.appendChild(option);
+                        console.log('Added manifest option:', manifestUrl);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading manifests:', error);
+                const select = document.getElementById('manifest-select');
+                select.innerHTML = '<option value="">Error loading manifests (see console)</option>';
+            }
+        }
+        
+        // Verify manifest exists before loading
+        async function verifyManifestExists(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                return response.ok;
+            } catch (error) {
+                console.warn('Could not verify manifest:', error);
+                return true; // Assume it exists if we can't verify
+            }
+        }
+        
+        // Load manifest in Mirador
+        async function loadManifest() {
+            const select = document.getElementById('manifest-select');
+            const customUrl = document.getElementById('custom-url').value.trim();
+            
+            let manifestUrl = customUrl || select.value;
+            
+            if (!manifestUrl) {
+                alert('Please select a manifest or enter a custom URL');
+                return;
+            }
+            
+            // Make relative URLs absolute
+            if (manifestUrl.startsWith('/')) {
+                manifestUrl = baseUrl + manifestUrl;
+            }
+            
+            console.log('Loading manifest:', manifestUrl);
+            
+            // Verify the manifest exists
+            const exists = await verifyManifestExists(manifestUrl);
+            if (!exists) {
+                alert(`Manifest not found: ${manifestUrl}`);
+                console.error('Manifest does not exist at:', manifestUrl);
+                return;
+            }
+            
+            // Destroy existing instance
+            if (miradorInstance) {
+                const container = document.getElementById('mirador-viewer');
+                container.innerHTML = '';
+            }
+            
+            // Create new Mirador instance
+            try {
+                miradorInstance = Mirador.viewer({
+                    id: 'mirador-viewer',
+                    windows: [{
+                        manifestId: manifestUrl,
+                        thumbnailNavigationPosition: 'far-bottom'
+                    }],
+                    window: {
+                        allowClose: false,
+                        allowMaximize: true,
+                        allowFullscreen: true,
+                        defaultSideBarPanel: 'info',
+                        sideBarOpenByDefault: true,
+                        panels: {
+                            info: true,
+                            attribution: true,
+                            canvas: true,
+                            annotations: false,
+                            search: false
+                        }
+                    },
+                    workspace: {
+                        showZoomControls: true,
+                        type: 'mosaic'
+                    },
+                    workspaceControlPanel: {
+                        enabled: true
+                    }
+                });
+                console.log('Mirador viewer loaded successfully');
+            } catch (error) {
+                console.error('Error loading manifest:', error);
+                document.getElementById('mirador-viewer').innerHTML =
+                    '<div class="error"><strong>Error loading manifest:</strong> ' + error.message + '</div>';
+            }
+        }
+        
+        // Load sample manifest directly
+        function loadSampleManifest() {
+            document.getElementById('manifest-select').value = '/collections/sample.json';
+            loadManifest();
+        }
+        
+        // Load manifest list on page load
+        loadManifestList();
+        
+        // Allow Enter key to load manifest
+        document.getElementById('custom-url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                loadManifest();
+            }
+        });
+        
+        // Auto-load if manifest is in URL hash
+        if (window.location.hash) {
+            const manifestName = window.location.hash.substring(1);
+            document.getElementById('manifest-select').value = `/collections/${manifestName}`;
+            setTimeout(loadManifest, 500);
+        }
+    </script>
+</body>
+</html>
