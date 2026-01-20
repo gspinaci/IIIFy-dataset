@@ -32,19 +32,7 @@ A complete setup for serving images via IIIF (International Image Interoperabili
 
 ## Quick Start
 
-### Easiest: Interactive Start Script
-
-Run the interactive start script:
-
-```bash
-./start.sh
-```
-
-This will guide you through setup and let you choose between:
-1. **Full orchestration** - Downloads dataset, generates manifests, starts server
-2. **Standalone** - Starts server only (assumes data exists)
-
-### One-Command Setup (Alternative)
+### One-Command Setup 
 
 For first-time setup, run everything with a single command:
 
